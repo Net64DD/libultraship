@@ -6,7 +6,7 @@
 #include <vector>
 #include <unordered_map>
 #include <spdlog/spdlog.h>
-#include "config/Config.h"
+#include "config/ConfigVersion.h"
 #include "resource/ResourceManager.h"
 #include "controller/controldeck/ControlDeck.h"
 #include "debug/CrashHandler.h"

@@ -2,7 +2,7 @@
 
 #include "ControlPort.h"
 #include <vector>
-#include <config/Config.h>
+#include <config/ConfigVersion.h>
 #include "controller/controldevice/controller/mapping/keyboard/KeyboardScancodes.h"
 #include "controller/physicaldevice/ConnectedPhysicalDeviceManager.h"
 #include "controller/physicaldevice/GlobalSDLDeviceSettings.h"

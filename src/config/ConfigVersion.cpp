@@ -1,4 +1,4 @@
-#include "Config.h"
+#include "ConfigVersion.h"
 
 #include <fstream>
 #include <string>

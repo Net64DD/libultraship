@@ -3,7 +3,7 @@
 #include <functional>
 #include "utils/filesystemtools/DiskFile.h"
 #include <utils/Utils.h>
-#include "config/Config.h"
+#include "config/ConfigVersion.h"
 #include "Context.h"
 
 namespace Ship {

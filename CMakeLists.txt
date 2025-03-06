@@ -45,6 +45,10 @@ if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
     include(cmake/dependencies/ios.cmake)
 endif()
 
+if (CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
+    include(cmake/dependencies/switch.cmake)
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     include(cmake/dependencies/linux.cmake)
 endif()

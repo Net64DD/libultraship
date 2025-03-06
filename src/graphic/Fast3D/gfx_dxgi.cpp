@@ -23,7 +23,7 @@
 #endif
 
 #include "config/ConsoleVariable.h"
-#include "config/Config.h"
+#include "config/ConfigVersion.h"
 #include "Context.h"
 
 #include "gfx_window_manager_api.h"

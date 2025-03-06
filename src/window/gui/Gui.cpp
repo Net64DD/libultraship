@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "config/Config.h"
+#include "config/ConfigVersion.h"
 #include "Context.h"
 #include "public/bridge/consolevariablebridge.h"
 #include "resource/type/Texture.h"

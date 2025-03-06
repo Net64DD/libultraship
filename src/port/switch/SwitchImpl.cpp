@@ -35,7 +35,6 @@ void Ship::Switch::Init(SwitchPhase phase) {
 #endif
             appletSetGamePlayRecordingState(true);
             appletHook(&applet_hook_cookie, on_applet_hook, NULL);
-            appletSetFocusHandlingMode(AppletFocusHandlingMode_NoSuspend);
             if (!hosversionBefore(8, 0, 0)) {
                 clkrstInitialize();
             }

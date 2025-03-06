@@ -194,19 +194,11 @@ target_link_libraries(libultraship PRIVATE libzip::zip)
 find_package(nlohmann_json REQUIRED)
 target_link_libraries(libultraship PUBLIC nlohmann_json::nlohmann_json)
 
-if (CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
-    set(TINYXML2_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../extern/tinyxml2)
-    add_library(tinyxml2 STATIC)
+find_package(tinyxml2 REQUIRED)
+target_link_libraries(libultraship PUBLIC tinyxml2::tinyxml2)
 
-    target_sources(tinyxml2 PRIVATE ${TINYXML2_DIR}/tinyxml2.cpp)
-    target_include_directories(tinyxml2 PUBLIC ${TINYXML2_DIR})
-else ()
-    find_package(tinyxml2 REQUIRED)
-    target_link_libraries(libultraship PUBLIC tinyxml2::tinyxml2)
-
-    find_package(spdlog REQUIRED)
-    target_link_libraries(libultraship PUBLIC spdlog::spdlog)
-endif ()
+find_package(spdlog REQUIRED)
+target_link_libraries(libultraship PUBLIC spdlog::spdlog)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(THREADS_PREFER_PTHREAD_FLAG ON)
