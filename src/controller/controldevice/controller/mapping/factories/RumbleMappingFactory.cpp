@@ -47,11 +47,12 @@ std::shared_ptr<ControllerRumbleMapping> RumbleMappingFactory::CreateRumbleMappi
     for (auto [instanceId, gamepad] :
          Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
              portIndex)) {
-        if (!SDL_GameControllerHasRumble(gamepad)) {
+		#ifndef __SWITCH__
+            if (!SDL_GameControllerHasRumble(gamepad)) {
+                continue;
+            }
+        #else
             continue;
-        }
-		#ifdef __SWITCH__
-			bool SDL_GameControllerHasRumble = false;
 		#endif
 
         for (int32_t button = SDL_CONTROLLER_BUTTON_A; button < SDL_CONTROLLER_BUTTON_MAX; button++) {
