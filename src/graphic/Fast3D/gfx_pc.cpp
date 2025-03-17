@@ -21,7 +21,7 @@
 #endif
 #include "graphic/Fast3D/debug/GfxDebugger.h"
 #include "libultraship/libultra/types.h"
-//#include "libultraship/libultra/gs2dex.h"
+// #include "libultraship/libultra/gs2dex.h"
 #include <string>
 
 #include "gfx_pc.h"
@@ -145,6 +145,7 @@ struct MaskedTextureEntry {
 };
 
 static map<string, MaskedTextureEntry> masked_textures;
+static std::vector<std::string> shader_ids;
 
 static UcodeHandlers ucode_handler_index = ucode_f3dex2;
 
@@ -877,6 +878,19 @@ static void import_texture_ci8(int tile, bool importReplacement) {
     gfx_rapi->upload_texture(tex_upload_buffer, width, height);
 }
 
+static void import_texture_img(int tile, bool importReplacement) {
+    const RawTexMetadata* metadata = &g_rdp.loaded_texture[g_rdp.texture_tile[tile].tmem_index].raw_tex_metadata;
+    const uint8_t* addr =
+        importReplacement && (metadata->resource != nullptr)
+            ? masked_textures.find(gfx_get_base_texture_path(metadata->resource->GetInitData()->Path))
+                  ->second.replacementData
+            : g_rdp.loaded_texture[g_rdp.texture_tile[tile].tmem_index].addr;
+
+    uint16_t width = metadata->width;
+    uint16_t height = metadata->height;
+    gfx_rapi->upload_texture(addr, width, height);
+}
+
 static void import_texture_raw(int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &g_rdp.loaded_texture[g_rdp.texture_tile[tile].tmem_index].raw_tex_metadata;
     const uint8_t* addr =
@@ -977,6 +991,11 @@ static void import_texture(int i, int tile, bool importReplacement) {
     }
 
     if (gfx_texture_cache_lookup(i, key)) {
+        return;
+    }
+
+    if ((texFlags & TEX_FLAG_LOAD_AS_IMG) != 0) {
+        import_texture_img(tile, importReplacement);
         return;
     }
 
@@ -1505,6 +1524,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     bool invisible =
         (g_rdp.other_mode_l & (3 << 24)) == (G_BL_0 << 24) && (g_rdp.other_mode_l & (3 << 20)) == (G_BL_CLR_MEM << 20);
     bool use_grayscale = g_rdp.grayscale;
+    auto shader = g_rdp.current_shader;
 
     if (texture_edge) {
         if (use_alpha) {
@@ -1550,13 +1570,17 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     if (g_rdp.loaded_texture[1].blended) {
         cc_options |= SHADER_OPT(TEXEL1_BLEND);
     }
+    if (shader.enabled) {
+        cc_options |= SHADER_OPT(USE_SHADER);
+        cc_options |= (shader.id << 17);
+    }
 
     ColorCombinerKey key;
     key.combine_mode = g_rdp.combine_mode;
     key.options = cc_options;
 
     // If we are not using alpha, clear the alpha components of the combiner as they have no effect
-    if (!use_alpha) {
+    if (!use_alpha && !shader.enabled) {
         key.combine_mode &= ~((0xfff << 16) | ((uint64_t)0xfff << 44));
     }
 
@@ -2922,6 +2946,34 @@ bool gfx_movemem_handler_otr(F3DGfx** cmd0) {
     return false;
 }
 
+int16_t gfx_create_shader(const std::string& path) {
+    std::shared_ptr<Ship::ResourceInitData> initData = std::make_shared<Ship::ResourceInitData>();
+    initData->Path = path;
+    initData->IsCustom = false;
+    initData->ByteOrder = Ship::Endianness::Native;
+    auto shader = Ship::Context::GetInstance()->GetResourceManager()->GetArchiveManager()->LoadFile(path);
+    if (shader == nullptr || !shader->IsLoaded) {
+        return -1;
+    }
+    shader_ids.push_back(std::string(shader->Buffer->data()));
+    return shader_ids.size() - 1;
+}
+
+bool gfx_set_shader_custom(F3DGfx** cmd0) {
+    F3DGfx* cmd = *cmd0;
+    char* file = (char*)cmd->words.w1;
+
+    if (file == nullptr) {
+        g_rdp.current_shader = { 0, 0, false };
+        return false;
+    }
+
+    const auto path = std::string(file);
+    const auto shaderId = gfx_create_shader(path);
+    g_rdp.current_shader = { true, shaderId, (uint8_t)C0(16, 1) };
+    return false;
+}
+
 bool gfx_moveword_handler_f3dex2(F3DGfx** cmd0) {
     F3DGfx* cmd = *cmd0;
 
@@ -3866,7 +3918,8 @@ static constexpr UcodeHandler otrHandlers = {
     { OTR_G_REGBLENDEDTEX,
       { "G_REGBLENDEDTEX", gfx_register_blended_texture_handler_custom } },         // G_REGBLENDEDTEX (0x3f)
     { OTR_G_SETINTENSITY, { "G_SETINTENSITY", gfx_set_intensity_handler_custom } }, // G_SETINTENSITY (0x40)
-    { OTR_G_MOVEMEM_HASH, { "OTR_G_MOVEMEM_HASH", gfx_movemem_handler_otr } },
+    { OTR_G_MOVEMEM_HASH, { "OTR_G_MOVEMEM_HASH", gfx_movemem_handler_otr } },      // OTR_G_MOVEMEM_HASH
+    { OTR_G_LOAD_SHADER, { "G_LOAD_SHADER", gfx_set_shader_custom } },
 };
 
 static constexpr UcodeHandler f3dex2Handlers = {
