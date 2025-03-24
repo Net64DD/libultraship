@@ -22,8 +22,11 @@
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 240
 
-extern uintptr_t gSegmentPointers[];
+#define MAX_SEGMENT_POINTERS 16
+
+extern uintptr_t gSegmentPointers[MAX_SEGMENT_POINTERS];
 extern uintptr_t gfxFramebuffer;
+extern int gInterpolationIndex;
 
 struct GfxRenderingAPI;
 struct GfxWindowManagerAPI;
@@ -180,8 +183,8 @@ struct RDP {
         uint8_t siz;
         uint8_t cms, cmt;
         uint8_t shifts, shiftt;
-        uint16_t uls, ult, lrs, lrt; // U10.2
-        uint16_t tmem;               // 0-511, in 64-bit word units
+        float uls, ult, lrs, lrt; // U10.2
+        uint16_t tmem;            // 0-511, in 64-bit word units
         uint32_t line_size_bytes;
         uint8_t palette;
         uint8_t tmem_index; // 0 or 1 for offset 0 kB or offset 2 kB, respectively
@@ -204,7 +207,7 @@ struct RDP {
 };
 
 typedef enum Attribute {
-    MTX_PROJECTION,
+    MTX_PROJECTION = 0,
     MTX_LOAD,
     MTX_PUSH,
     MTX_NOPUSH,
