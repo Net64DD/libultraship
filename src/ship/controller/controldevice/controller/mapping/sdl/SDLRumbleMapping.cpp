@@ -18,29 +18,36 @@ SDLRumbleMapping::SDLRumbleMapping(uint8_t portIndex, uint8_t lowFrequencyIntens
 }
 
 void SDLRumbleMapping::StartRumble() {
+    for (const auto& [instanceId, gamepad] : Context::GetRawInstance()
+                                                 ->GetControlDeck()
+                                                 ->GetConnectedPhysicalDeviceManager()
+                                                 ->GetConnectedSDLGamepadsForPort(mPortIndex)) {
 #ifdef __SWITCH__
-    SwitchController::GetInstance().SendRumble(
-        mPortIndex, mLowFrequencyIntensityPercentage / 100.0f, mHighFrequencyIntensityPercentage / 100.0f);
-    return;
-#endif
-
-    for (const auto& [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             mPortIndex)) {
+        int playerIndex = SwitchController::GetDeviceSlot(instanceId);
+        if (playerIndex >= 0 && playerIndex < 8) {
+            SwitchController::GetInstance().SendRumble(static_cast<uint8_t>(playerIndex),
+                                                       mLowFrequencyIntensityPercentage / 100.0f,
+                                                       mHighFrequencyIntensityPercentage / 100.0f);
+        }
+#else
         SDL_GameControllerRumble(gamepad, mLowFrequencyIntensity, mHighFrequencyIntensity, 0);
+#endif
     }
 }
 
 void SDLRumbleMapping::StopRumble() {
+    for (const auto& [instanceId, gamepad] : Context::GetRawInstance()
+                                                 ->GetControlDeck()
+                                                 ->GetConnectedPhysicalDeviceManager()
+                                                 ->GetConnectedSDLGamepadsForPort(mPortIndex)) {
 #ifdef __SWITCH__
-    SwitchController::GetInstance().SendRumble(mPortIndex, 0.0f, 0.0f);
-    return;
-#endif
-
-    for (const auto& [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             mPortIndex)) {
+        int playerIndex = SwitchController::GetDeviceSlot(instanceId);
+        if (playerIndex >= 0 && playerIndex < 8) {
+            SwitchController::GetInstance().SendRumble(static_cast<uint8_t>(playerIndex), 0.0f, 0.0f);
+        }
+#else
         SDL_GameControllerRumble(gamepad, 0, 0, 0);
+#endif
     }
 }
 
@@ -60,34 +67,31 @@ std::string SDLRumbleMapping::GetRumbleMappingId() {
 
 void SDLRumbleMapping::SaveToConfig() {
     const std::string mappingCvarKey = CVAR_PREFIX_CONTROLLERS ".RumbleMappings." + GetRumbleMappingId();
-    Ship::Context::GetInstance()->GetConsoleVariables()->SetString(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->SetString(
         StringHelper::Sprintf("%s.RumbleMappingClass", mappingCvarKey.c_str()).c_str(), "SDLRumbleMapping");
-    Ship::Context::GetInstance()->GetConsoleVariables()->SetInteger(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->SetInteger(
         StringHelper::Sprintf("%s.LowFrequencyIntensity", mappingCvarKey.c_str()).c_str(),
         mLowFrequencyIntensityPercentage);
-    Ship::Context::GetInstance()->GetConsoleVariables()->SetInteger(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->SetInteger(
         StringHelper::Sprintf("%s.HighFrequencyIntensity", mappingCvarKey.c_str()).c_str(),
         mHighFrequencyIntensityPercentage);
-    Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
 }
 
 void SDLRumbleMapping::EraseFromConfig() {
     const std::string mappingCvarKey = CVAR_PREFIX_CONTROLLERS ".RumbleMappings." + GetRumbleMappingId();
 
-    Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->ClearVariable(
         StringHelper::Sprintf("%s.RumbleMappingClass", mappingCvarKey.c_str()).c_str());
-    Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->ClearVariable(
         StringHelper::Sprintf("%s.LowFrequencyIntensity", mappingCvarKey.c_str()).c_str());
-    Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->ClearVariable(
         StringHelper::Sprintf("%s.HighFrequencyIntensity", mappingCvarKey.c_str()).c_str());
 
-    Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
 }
 
 std::string SDLRumbleMapping::GetPhysicalDeviceName() {
-#ifdef __SWITCH__
-    return "Switch Controller";
-#endif
     return "SDL Gamepad";
 }
 } // namespace Ship

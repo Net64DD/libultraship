@@ -2,6 +2,9 @@
 #include <SDL2/SDL.h>
 #include "ship/Context.h"
 #include "ship/controller/controldeck/ControlDeck.h"
+#ifdef __SWITCH__
+#include "ship/port/switch/SwitchController.h"
+#endif
 
 namespace Ship {
 
@@ -20,15 +23,21 @@ void SDLAddRemoveDeviceEventHandler::UpdateElement() {
     while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_CONTROLLERDEVICEADDED, SDL_CONTROLLERDEVICEADDED) > 0) {
         // from https://wiki.libsdl.org/SDL2/SDL_ControllerDeviceEvent: which - the joystick device index for
         // the SDL_CONTROLLERDEVICEADDED event
-        Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->HandlePhysicalDeviceConnect(
+        Context::GetRawInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->HandlePhysicalDeviceConnect(
             event.cdevice.which);
     }
 
     while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_CONTROLLERDEVICEREMOVED, SDL_CONTROLLERDEVICEREMOVED) > 0) {
         // from https://wiki.libsdl.org/SDL2/SDL_ControllerDeviceEvent: which - the [...] instance id for the
         // SDL_CONTROLLERDEVICEREMOVED [...] event
-        Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->HandlePhysicalDeviceDisconnect(
-            event.cdevice.which);
+        Context::GetRawInstance()
+            ->GetControlDeck()
+            ->GetConnectedPhysicalDeviceManager()
+            ->HandlePhysicalDeviceDisconnect(event.cdevice.which);
     }
+
+#ifdef __SWITCH__
+    SwitchController::Update();
+#endif
 }
 } // namespace Ship

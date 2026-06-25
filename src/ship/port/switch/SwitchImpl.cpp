@@ -1,5 +1,6 @@
 #ifdef __SWITCH__
 #include "SwitchImpl.h"
+#include "SwitchKeyboard.h"
 #include <switch.h>
 #include <SDL2/SDL.h>
 #include "SwitchPerformanceProfiles.h"
@@ -7,9 +8,6 @@
 #include <spdlog/spdlog.h>
 #include "ship/Context.h"
 #include "ship/audio/Audio.h"
-#include "ship/utils/StringHelper.h"
-
-#include <imgui_internal.h>
 
 #define DOCKED_MODE 1
 #define HANDHELD_MODE 0
@@ -17,12 +15,6 @@
 static AppletHookCookie applet_hook_cookie;
 static bool isRunning = true;
 static bool hasFocus = true;
-static bool isShowingVirtualKeyboard = false;
-
-static SwkbdConfig keyboard;
-static char kbBuffer[256] = { 0 };
-
-HidsysUniquePadId uniquePadIds[8];
 
 void DetectAppletMode();
 
@@ -33,7 +25,7 @@ void Ship::Switch::Init(SwitchPhase phase) {
         case PreInitPhase:
             DetectAppletMode();
             socketInitializeDefault();
-#ifdef DEBUG
+#ifdef _DEBUG
             nxlinkStdio();
 #endif
             break;
@@ -46,14 +38,17 @@ void Ship::Switch::Init(SwitchPhase phase) {
                 clkrstInitialize();
             }
             hidsysInitialize();
-            padConfigureInput(8, HidNpadStyleSet_NpadStandard);
-            s32 total = 0; // unused
-            hidsysGetUniquePadIds(uniquePadIds, 8, &total);
+            padConfigureInput(8, HidNpadStyleSet_NpadStandard | HidNpadStyleTag_NpadGc | HidNpadStyleTag_NpadLark |
+                                     HidNpadStyleTag_NpadHandheldLark | HidNpadStyleTag_NpadLucia |
+                                     HidNpadStyleTag_NpadLagon | HidNpadStyleTag_NpadLager |
+                                     HidNpadStyleTag_NpadSystemExt | HidNpadStyleTag_NpadSystem);
             break;
     }
 }
 
 void Ship::Switch::Exit() {
+    Keyboard::Close();
+    hidsysExit();
     socketExit();
     clkrstExit();
     appletSetGamePlayRecordingState(false);
@@ -85,32 +80,6 @@ void Ship::Switch::ImGuiSetupFont(ImFontAtlas* fonts) {
     fonts->Build();
 
     plExit();
-}
-
-void Ship::Switch::CreateKeyboard() {
-    Result rc = swkbdCreate(&keyboard, 0);
-    if (R_FAILED(rc)) {
-        SPDLOG_ERROR("Failed to create keyboard: {}", rc);
-    } else {
-        swkbdConfigMakePresetDefault(&keyboard);
-    }
-}
-
-void Ship::Switch::ImGuiProcessEvent(bool wantsTextInput) {
-    ImGuiInputTextState* state = ImGui::GetInputTextState(ImGui::GetActiveID());
-    ImGuiIO& io = ImGui::GetIO();
-    if (wantsTextInput) {
-        if (!isShowingVirtualKeyboard) {
-            state->ClearText();
-            isShowingVirtualKeyboard = true;
-            memset(kbBuffer, 0, sizeof(kbBuffer));
-            swkbdShow(&keyboard, kbBuffer, sizeof(kbBuffer));
-            io.SetAppAcceptingEvents(true);
-            io.AddInputCharactersUTF8(kbBuffer);
-        }
-    } else if (isShowingVirtualKeyboard) {
-        isShowingVirtualKeyboard = false;
-    }
 }
 
 bool Ship::Switch::IsRunning() {
@@ -145,15 +114,6 @@ void Ship::Switch::ApplyOverclock(void) {
     }
 }
 
-char* Ship::Switch::GetControllerUUID(int controller) {
-    HidsysUniquePadSerialNumber serial;
-    hidsysGetUniquePadSerialNumber(uniquePadIds[controller], &serial);
-    char* cuid = serial.serial_number;
-    return SDL_strdup(strlen(cuid) >= 14 && cuid[0] == 'X' && cuid[1] == 'C'
-                          ? cuid
-                          : StringHelper::Sprintf("CID%d0000000000", controller).c_str());
-}
-
 static void on_applet_hook(AppletHookType hook, void* param) {
     AppletFocusState focus_state;
 
@@ -179,11 +139,8 @@ static void on_applet_hook(AppletHookType hook, void* param) {
                 }
             } else {
                 Ship::Switch::ApplyOverclock();
-                // reinitialize audio subsystem to fix audio problems after resuming from sleep
-                // see https://github.com/HarbourMasters/Shipwright/issues/3317
                 SPDLOG_INFO("restarting SDL audio system to work around audio problems on resume");
-                if (auto audio = Ship::Context::GetInstance()->GetAudio(); audio != nullptr) {
-                    // the audio subsystem is not initialized during applet boot
+                if (auto audio = Ship::Context::GetRawInstance()->GetAudio(); audio != nullptr) {
                     audio->SetCurrentAudioBackend(Ship::AudioBackend::SDL);
                 }
             }
@@ -203,10 +160,9 @@ static void on_applet_hook(AppletHookType hook, void* param) {
     }
 }
 
-void Ship::Switch::ShowErrorApplet(const char *format, ...) {
+void Ship::Switch::ShowErrorApplet(const char* format, ...) {
     ErrorSystemConfig errorConfig = {};
 
-    // Error applet can display up to 2048 bytes
     char messageBuffer[2048];
     va_list args;
     va_start(args, format);
@@ -216,7 +172,7 @@ void Ship::Switch::ShowErrorApplet(const char *format, ...) {
     const Result rc = errorSystemCreate(&errorConfig, messageBuffer, nullptr);
 
     if (R_SUCCEEDED(rc)) {
-        errorSystemSetResult(&errorConfig, MAKERESULT(400, 1)); // module id, error code
+        errorSystemSetResult(&errorConfig, MAKERESULT(400, 1));
         errorSystemShow(&errorConfig);
     }
 }
@@ -256,9 +212,9 @@ void DetectAppletMode() {
 
 void Ship::Switch::ThrowMissingOTR(std::string otrPath) {
     Ship::Switch::ShowErrorApplet("You've launched the Ship without an OTR/O2R file.\n"
-                                        "Please relaunch making sure %s exists.\n\n"
-                                        "%s.",
-                                        otrPath.c_str(), RandomTexts[rand() % 25]);
+                                  "Please relaunch making sure %s exists.\n\n"
+                                  "%s.",
+                                  otrPath.c_str(), RandomTexts[rand() % 25]);
     exit(2);
 }
 #endif

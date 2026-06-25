@@ -163,6 +163,17 @@ void ScriptLoader::Compile(const std::shared_ptr<Archive>& archive) {
         tcc_set_options(s, mBuildOptions.c_str());
         tcc_set_output_type(s, TCC_OUTPUT_DLL);
 
+        // Tell TCC where its own includes and libtcc1.a live.
+        // We look for a library path whose parent has an "include" sibling
+        // (the canonical .tcc/ root layout).
+        for (const auto& libPath : mLibraryPaths) {
+            auto tccRoot = std::filesystem::path(libPath).parent_path();
+            if (std::filesystem::exists(tccRoot / "include")) {
+                tcc_set_lib_path(s, tccRoot.string().c_str());
+                break;
+            }
+        }
+
         for (const std::string& includePath : mIncludePaths) {
             if (!std::filesystem::exists(includePath)) {
                 SPDLOG_WARN("Include path does not exist: {}", includePath);
@@ -240,7 +251,7 @@ void ScriptLoader::Compile(const std::shared_ptr<Archive>& archive) {
 
 void ScriptLoader::CompileAll(const std::optional<std::function<void(const std::shared_ptr<Archive>&)>>& preCallback,
                               const std::optional<std::function<void()>>& postCallback) {
-    auto archive = Context::GetInstance()->GetResourceManager()->GetArchiveManager();
+    auto archive = Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
     auto list = archive->GetArchives();
 
     for (const auto& entry : *list) {
