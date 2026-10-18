@@ -1,6 +1,8 @@
+#if defined(ENABLE_OPENGL) || defined(__APPLE__)
+
 #include <stdio.h>
 
-#if defined(ENABLE_OPENGL) || defined(__APPLE__)
+#include "fast/Fast3dWindow.h"
 
 #ifdef __MINGW32__
 #define FOR_WINDOWS 1
@@ -40,6 +42,7 @@
 #endif
 
 #include "ship/window/gui/Gui.h"
+#include "fast/Fast3dGui.h"
 
 #ifdef _WIN32
 #include <WTypesbase.h>
@@ -244,11 +247,11 @@ void GfxWindowBackendSDL2::SetFullscreenImpl(bool on, bool call_callback) {
     }
     mFullScreen = on;
 #else
-    if (SDL_SetWindowFullscreen(
-            mWnd, on ? (Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(CVAR_SDL_WINDOWED_FULLSCREEN, 0)
-                            ? SDL_WINDOW_FULLSCREEN_DESKTOP
-                            : SDL_WINDOW_FULLSCREEN)
-                     : 0) >= 0) {
+    if (SDL_SetWindowFullscreen(mWnd, on ? (Ship::Context::GetRawInstance()->GetConsoleVariables()->GetInteger(
+                                                CVAR_SDL_WINDOWED_FULLSCREEN, 0)
+                                                ? SDL_WINDOW_FULLSCREEN_DESKTOP
+                                                : SDL_WINDOW_FULLSCREEN)
+                                         : 0) >= 0) {
         mFullScreen = on;
     } else {
         SPDLOG_ERROR("Failed to switch from or to fullscreen mode.");
@@ -257,7 +260,7 @@ void GfxWindowBackendSDL2::SetFullscreenImpl(bool on, bool call_callback) {
 #endif
 
     if (!on) {
-        auto conf = Ship::Context::GetInstance()->GetConfig();
+        auto conf = Ship::Context::GetRawInstance()->GetConfig();
         mWindowWidth = conf->GetInt("Window.Width", 640);
         mWindowHeight = conf->GetInt("Window.Height", 480);
         int32_t posX = conf->GetInt("Window.PositionX", 100);
@@ -407,7 +410,7 @@ void GfxWindowBackendSDL2::Init(const char* gameName, const char* gfxApiName, bo
     SDL_WndProc = SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)gfx_sdl_wnd_proc);
     SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
 #endif
-    Ship::GuiWindowInitData window_impl;
+    Fast::GuiWindowInitData window_impl;
 
     int display_in_use = SDL_GetWindowDisplayIndex(mWnd);
     if (display_in_use < 0) { // Fallback to default if out of bounds
@@ -434,6 +437,7 @@ void GfxWindowBackendSDL2::Init(const char* gameName, const char* gfxApiName, bo
         }
 #endif
         window_impl.Opengl = { mWnd, mCtx };
+        window_impl.Backend = WindowBackend::FAST3D_SDL_OPENGL;
     } else {
         uint32_t flags = SDL_RENDERER_ACCELERATED;
         if (mVsyncEnabled) {
@@ -451,9 +455,11 @@ void GfxWindowBackendSDL2::Init(const char* gameName, const char* gfxApiName, bo
 
         SDL_GetRendererOutputSize(mRenderer, &mWindowWidth, &mWindowHeight);
         window_impl.Metal = { mWnd, mRenderer };
+        window_impl.Backend = WindowBackend::FAST3D_SDL_METAL;
     }
 
-    Ship::Context::GetInstance()->GetWindow()->GetGui()->Init(window_impl);
+    std::dynamic_pointer_cast<Fast::Fast3dGui>(Ship::Context::GetRawInstance()->GetWindow()->GetGui())
+        ->Init(window_impl);
 
     for (size_t i = 0; i < std::size(lus_to_sdl_table); i++) {
         mSdlToLusTable[lus_to_sdl_table[i]] = i;
@@ -547,6 +553,29 @@ void GfxWindowBackendSDL2::GetDimensions(uint32_t* width, uint32_t* height, int3
     SDL_GetWindowPosition(mWnd, static_cast<int*>(posX), static_cast<int*>(posY));
 }
 
+void GfxWindowBackendSDL2::SetDimensions(uint32_t width, uint32_t height, int32_t posX, int32_t posY) {
+    mWindowWidth = width;
+    mWindowHeight = height;
+    if (mWnd) {
+        SDL_SetWindowPosition(mWnd, posX, posY);
+        SDL_SetWindowSize(mWnd, mWindowWidth, mWindowHeight);
+    }
+}
+
+Ship::WindowRect GfxWindowBackendSDL2::GetPrimaryMonitorRect() {
+    SDL_DisplayMode mode;
+    int display_in_use = mWnd ? SDL_GetWindowDisplayIndex(mWnd) : 0;
+    if (display_in_use < 0) {
+        SPDLOG_WARN("Can't detect on which monitor we are. Probably out of display area? ({})", SDL_GetError());
+        display_in_use = 0;
+    }
+    if (SDL_GetDesktopDisplayMode(display_in_use, &mode) >= 0) {
+        return { 0, 0, mode.w, mode.h };
+    }
+    SPDLOG_ERROR("Failed to get SDL Desktop Display Mode: ({})", SDL_GetError());
+    return { 0, 0, 0, 0 };
+}
+
 int GfxWindowBackendSDL2::TranslateScancode(int scancode) const {
     if (scancode < 512) {
         return mSdlToLusTable[scancode];
@@ -594,9 +623,19 @@ void GfxWindowBackendSDL2::OnMouseButtonUp(int btn) const {
 }
 
 void GfxWindowBackendSDL2::HandleSingleEvent(SDL_Event& event) {
-    Ship::WindowEvent event_impl;
+    Fast::WindowEvent event_impl;
     event_impl.Sdl = { &event };
-    Ship::Context::GetInstance()->GetWindow()->GetGui()->HandleWindowEvents(event_impl);
+    auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
+    auto fast3dGui = std::dynamic_pointer_cast<Fast::Fast3dGui>(gui);
+    if (fast3dGui) {
+        fast3dGui->HandleWindowEvents(event_impl);
+    } else {
+        static bool sWarnedOnce = false;
+        if (!sWarnedOnce) {
+            SPDLOG_ERROR("gfx_sdl2: Gui is not a Fast3dGui; cannot dispatch window event");
+            sWarnedOnce = true;
+        }
+    }
     switch (event.type) {
 #ifndef TARGET_WEB
         // Scancodes are broken in Emscripten SDL2: https://bugzilla.libsdl.org/show_bug.cgi?id=3259
@@ -638,7 +677,7 @@ void GfxWindowBackendSDL2::HandleSingleEvent(SDL_Event& event) {
             }
             break;
         case SDL_DROPFILE:
-            Ship::Context::GetInstance()->GetFileDropMgr()->SetDroppedFile(event.drop.file);
+            Ship::Context::GetRawInstance()->GetFileDropMgr()->SetDroppedFile(event.drop.file);
             break;
         case SDL_QUIT:
             Close();
@@ -721,7 +760,7 @@ void GfxWindowBackendSDL2::SyncFramerateWithTime() const {
 }
 
 void GfxWindowBackendSDL2::SwapBuffersBegin() {
-    bool nextVsyncEnabled = Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(CVAR_VSYNC_ENABLED, 1);
+    bool nextVsyncEnabled = Ship::Context::GetRawInstance()->GetConsoleVariables()->GetInteger(CVAR_VSYNC_ENABLED, 1);
 
     if (mVsyncEnabled != nextVsyncEnabled) {
         mVsyncEnabled = nextVsyncEnabled;

@@ -1,7 +1,11 @@
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
+#=================== SDL2 ===================
+find_package(SDL2 REQUIRED)
+target_link_libraries(ImGui PUBLIC SDL2::SDL2)
+
 # ========= ImGui =========
-target_include_directories(ImGui PRIVATE ${DEVKITPRO}/portlibs/switch/include/ ${DEVKITPRO}/portlibs/switch/include/SDL2)
+target_include_directories(ImGui PUBLIC ${DEVKITPRO}/portlibs/switch/include/ ${DEVKITPRO}/portlibs/switch/include/SDL2)
 
 #=================== nlohmann-json ===================
 find_package(nlohmann_json QUIET)

@@ -182,7 +182,7 @@ static void on_applet_hook(AppletHookType hook, void* param) {
                 // reinitialize audio subsystem to fix audio problems after resuming from sleep
                 // see https://github.com/HarbourMasters/Shipwright/issues/3317
                 SPDLOG_INFO("restarting SDL audio system to work around audio problems on resume");
-                if (auto audio = Ship::Context::GetInstance()->GetAudio(); audio != nullptr) {
+                if (auto audio = Ship::Context::GetRawInstance()->GetAudio(); audio != nullptr) {
                     // the audio subsystem is not initialized during applet boot
                     audio->SetCurrentAudioBackend(Ship::AudioBackend::SDL);
                 }

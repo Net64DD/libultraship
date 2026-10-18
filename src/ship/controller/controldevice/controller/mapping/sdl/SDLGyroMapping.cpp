@@ -36,9 +36,10 @@ void SDLGyroMapping::Recalibrate() {
     return;
 #endif
 
-    for (const auto& [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             mPortIndex)) {
+    for (const auto& [instanceId, gamepad] : Context::GetRawInstance()
+                                                 ->GetControlDeck()
+                                                 ->GetConnectedPhysicalDeviceManager()
+                                                 ->GetConnectedSDLGamepadsForPort(mPortIndex)) {
         if (!SDL_GameControllerHasSensor(gamepad, SDL_SENSOR_GYRO)) {
             continue;
         }
@@ -75,20 +76,17 @@ void SDLGyroMapping::UpdatePad(float& x, float& y) {
     y = (yaw - mNeutralYaw) * mSensitivity;
     return;
 #else
-/*
- * Skip this check on Switch since it will make the gyro preview non-functional
- * when the menu gamepad navigation is on. It's not a big deal to not block gyro while in a menu as it is used rarely anyways.
- */
-if (Context::GetInstance()->GetControlDeck()->GamepadGameInputBlocked()) {
-    x = 0;
-    y = 0;
-    return;
-}
+    if (Context::GetRawInstance()->GetControlDeck()->GamepadGameInputBlocked()) {
+        x = 0;
+        y = 0;
+        return;
+    }
 #endif
 
-    for (const auto& [instanceId, gamepad] :
-         Context::GetInstance()->GetControlDeck()->GetConnectedPhysicalDeviceManager()->GetConnectedSDLGamepadsForPort(
-             mPortIndex)) {
+    for (const auto& [instanceId, gamepad] : Context::GetRawInstance()
+                                                 ->GetControlDeck()
+                                                 ->GetConnectedPhysicalDeviceManager()
+                                                 ->GetConnectedSDLGamepadsForPort(mPortIndex)) {
         if (!SDL_GameControllerHasSensor(gamepad, SDL_SENSOR_GYRO)) {
             continue;
         }
@@ -115,35 +113,35 @@ std::string SDLGyroMapping::GetGyroMappingId() {
 void SDLGyroMapping::SaveToConfig() {
     const std::string mappingCvarKey = CVAR_PREFIX_CONTROLLERS ".GyroMappings." + GetGyroMappingId();
 
-    Ship::Context::GetInstance()->GetConsoleVariables()->SetString(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->SetString(
         StringHelper::Sprintf("%s.GyroMappingClass", mappingCvarKey.c_str()).c_str(), "SDLGyroMapping");
-    Ship::Context::GetInstance()->GetConsoleVariables()->SetFloat(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->SetFloat(
         StringHelper::Sprintf("%s.Sensitivity", mappingCvarKey.c_str()).c_str(), mSensitivity);
-    Ship::Context::GetInstance()->GetConsoleVariables()->SetFloat(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->SetFloat(
         StringHelper::Sprintf("%s.NeutralPitch", mappingCvarKey.c_str()).c_str(), mNeutralPitch);
-    Ship::Context::GetInstance()->GetConsoleVariables()->SetFloat(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->SetFloat(
         StringHelper::Sprintf("%s.NeutralYaw", mappingCvarKey.c_str()).c_str(), mNeutralYaw);
-    Ship::Context::GetInstance()->GetConsoleVariables()->SetFloat(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->SetFloat(
         StringHelper::Sprintf("%s.NeutralRoll", mappingCvarKey.c_str()).c_str(), mNeutralRoll);
 
-    Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
 }
 
 void SDLGyroMapping::EraseFromConfig() {
     const std::string mappingCvarKey = CVAR_PREFIX_CONTROLLERS ".GyroMappings." + GetGyroMappingId();
 
-    Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->ClearVariable(
         StringHelper::Sprintf("%s.GyroMappingClass", mappingCvarKey.c_str()).c_str());
-    Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->ClearVariable(
         StringHelper::Sprintf("%s.Sensitivity", mappingCvarKey.c_str()).c_str());
-    Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->ClearVariable(
         StringHelper::Sprintf("%s.NeutralPitch", mappingCvarKey.c_str()).c_str());
-    Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->ClearVariable(
         StringHelper::Sprintf("%s.NeutralYaw", mappingCvarKey.c_str()).c_str());
-    Ship::Context::GetInstance()->GetConsoleVariables()->ClearVariable(
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->ClearVariable(
         StringHelper::Sprintf("%s.NeutralRoll", mappingCvarKey.c_str()).c_str());
 
-    Ship::Context::GetInstance()->GetConsoleVariables()->Save();
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
 }
 
 std::string SDLGyroMapping::GetPhysicalDeviceName() {
