@@ -48,7 +48,7 @@ void Archive::Load() {
         reader->SetEndianness(endianness);
         SetGameVersion(reader->ReadUInt32());
         isGameVersionValid =
-            Context::GetInstance()->GetResourceManager()->GetArchiveManager()->IsGameVersionValid(GetGameVersion());
+            Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->IsGameVersionValid(GetGameVersion());
 
         if (!isGameVersionValid) {
             SPDLOG_WARN("Attempting to load Archive \"{}\" with invalid version {}", GetPath(), GetGameVersion());
@@ -79,7 +79,7 @@ void Archive::Load() {
                 mHasGameVersion = true;
                 SetGameVersion(mManifest.GameVersion);
                 isGameVersionValid =
-                    Context::GetInstance()->GetResourceManager()->GetArchiveManager()->IsGameVersionValid(
+                    Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->IsGameVersionValid(
                         GetGameVersion());
 
                 if (!isGameVersionValid) {
@@ -108,7 +108,7 @@ void Archive::Unload() {
 
 std::shared_ptr<File> Archive::LoadFile(uint64_t hash) {
     const std::string& filePath =
-        *Context::GetInstance()->GetResourceManager()->GetArchiveManager()->HashToString(hash);
+        *Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->HashToString(hash);
     return LoadFile(filePath);
 }
 
@@ -167,16 +167,23 @@ void Archive::SetLoaded(bool isLoaded) {
     mIsLoaded = isLoaded;
 }
 
+int32_t Archive::GetPriority() {
+    return mPriority;
+}
+
+void Archive::SetPriority(int32_t priority) {
+    mPriority = priority;
+}
+
 void Archive::SetGameVersion(uint32_t gameVersion) {
     mGameVersion = gameVersion;
 }
 
 void Archive::IndexFile(const std::string& filePath) {
-    if (filePath.length() > 5 && filePath.substr(filePath.length() - 5) == ".meta") {
-        IndexFile(filePath.substr(0, filePath.length() - 5));
-        return;
-    }
-
+    // Index every file under its literal name, including `.meta` sidecars. Keeping `foo`
+    // (a real asset) and `foo.meta` (its alias sidecar) as distinct entries lets resolution
+    // tell "has a real foo" from "has a foo.meta" — the previous suffix-stripping conflated
+    // the two, which is the root of the alias-shadowing bug.
     (*mHashes)[CRC64(filePath.c_str())] = filePath;
 }
 
@@ -187,8 +194,8 @@ void Archive::Validate() {
         return;
     }
 
-    auto keystore = Context::GetInstance()->GetKeystore();
-    auto manager = Context::GetInstance()->GetResourceManager()->GetArchiveManager();
+    auto keystore = Context::GetRawInstance()->GetKeystore();
+    auto manager = Context::GetRawInstance()->GetResourceManager()->GetArchiveManager();
     std::vector<uint8_t> manifestKey = StringHelper::HexToBytes(mManifest.PublicKey);
 
     if (!keystore->HasKey(manifestKey)) {

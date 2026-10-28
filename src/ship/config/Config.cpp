@@ -1,5 +1,7 @@
 #include "ship/config/Config.h"
 
+#include <cstdio>
+#include <cstdint>
 #include <fstream>
 #include <string>
 #include <filesystem>
@@ -9,11 +11,39 @@
 #include "ship/utils/StringHelper.h"
 #include "ship/Context.h"
 
-#ifdef __APPLE__
-#include "fast/backends/gfx_metal.h"
-#endif
-
 namespace fs = std::filesystem;
+
+#if defined(__SWITCH__) || defined(__WIIU__)
+// std::filesystem::rename/copy_file are not reliable with the Switch/WiiU toolchains
+// (see SaveManager::WriteFileSafely), so replace via a fopen-based copy.
+static bool CopyFileContents(const fs::path& src, const fs::path& dst) {
+    FILE* r = fopen(src.c_str(), "rb");
+    if (r == nullptr) {
+        return false;
+    }
+    FILE* w = fopen(dst.c_str(), "wb");
+    if (w == nullptr) {
+        fclose(r);
+        return false;
+    }
+    alignas(0x40) uint8_t buf[4096];
+    size_t res = 0;
+    bool ok = true;
+    while ((res = fread(buf, 1, sizeof(buf), r)) > 0) {
+        if (fwrite(buf, 1, res, w) != res) {
+            ok = false;
+            break;
+        }
+    }
+    // fread ending at EOF is expected; any other error fails the copy.
+    if (ferror(r)) {
+        ok = false;
+    }
+    fclose(r);
+    ok = fclose(w) == 0 && ok;
+    return ok;
+}
+#endif
 
 namespace Ship {
 Config::Config(std::string path) : mPath(std::move(path)), mIsNewInstance(false) {
@@ -216,9 +246,49 @@ void Config::Reload() {
 }
 
 void Config::Save() {
-    std::ofstream file(mPath);
     mNestedJson = mFlattenedJson.unflatten();
-    file << mNestedJson.dump(4);
+    const fs::path configPath(mPath);
+    const fs::path tempPath = configPath.parent_path() / (configPath.filename().string() + ".tmp");
+    std::error_code ec;
+    {
+        std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
+        if (!file.is_open()) {
+            SPDLOG_ERROR("Could not open \"{}\" to save config", tempPath.string());
+            return;
+        }
+        file << mNestedJson.dump(4);
+        file.flush();
+        if (!file.good()) {
+            SPDLOG_ERROR("Could not write \"{}\"; keeping the existing config", tempPath.string());
+            file.close();
+            fs::remove(tempPath, ec);
+            return;
+        }
+    }
+#if defined(__SWITCH__) || defined(__WIIU__)
+    // std::filesystem::rename does not work reliably on Switch/WiiU, so emulate the
+    // atomic replace the same way SaveManager::WriteFileSafely does: remove the old
+    // config, copy the temp file over it, then clean up the temp file.
+    fs::remove(configPath, ec);
+    ec.clear();
+    if (!CopyFileContents(tempPath, configPath)) {
+        SPDLOG_ERROR("Could not replace config \"{}\": copy failed, keeping the existing config (temp kept at \"{}\")",
+                     mPath, tempPath.string());
+        return;
+    }
+    fs::remove(tempPath, ec);
+    if (ec) {
+        SPDLOG_ERROR("Could not clean up temp config \"{}\": {}", tempPath.string(), ec.message());
+    }
+    return;
+#else
+    fs::rename(tempPath, configPath, ec);
+#endif
+    if (ec) {
+        SPDLOG_ERROR("Could not replace config \"{}\": {}", mPath, ec.message());
+        std::error_code removeEc;
+        fs::remove(tempPath, removeEc);
+    }
 }
 
 template <typename T> std::vector<T> Config::GetArray(const std::string& key) {
@@ -234,116 +304,6 @@ template <typename T> void Config::SetArray(const std::string& key, std::vector<
 
 nlohmann::json Config::GetNestedJson() {
     return mNestedJson;
-}
-
-AudioBackend Config::GetCurrentAudioBackend() {
-    std::string backendName = GetString("Window.AudioBackend");
-    if (backendName == "wasapi") {
-        return AudioBackend::WASAPI;
-    }
-
-    // Migrate pulse player in config to sdl
-    if (backendName == "pulse") {
-        SetCurrentAudioBackend(AudioBackend::SDL);
-        return AudioBackend::SDL;
-    }
-
-    if (backendName == "coreaudio") {
-        return AudioBackend::COREAUDIO;
-    }
-
-    if (backendName == "sdl") {
-        return AudioBackend::SDL;
-    }
-
-    if (backendName == "null") {
-        return AudioBackend::NUL;
-    }
-
-    SPDLOG_TRACE("Could not find AudioBackend matching value from config file ({}). Returning default AudioBackend.",
-                 backendName);
-#ifdef _WIN32
-    return AudioBackend::WASAPI;
-#endif
-
-#ifdef __APPLE__
-    return AudioBackend::COREAUDIO;
-#endif
-
-    return AudioBackend::SDL;
-}
-
-AudioChannelsSetting Config::GetCurrentAudioChannelsSetting() {
-    int32_t channelsSetting =
-        GetInt("CVars." CVAR_AUDIO_CHANNELS_SETTING, static_cast<int32_t>(AudioChannelsSetting::audioMax));
-    switch (channelsSetting) {
-        case AudioChannelsSetting::audioMatrix51:
-            return AudioChannelsSetting::audioMatrix51;
-        case AudioChannelsSetting::audioRaw51:
-            return AudioChannelsSetting::audioRaw51;
-        case AudioChannelsSetting::audioStereo:
-        case AudioChannelsSetting::audioMax:
-        default:
-            return AudioChannelsSetting::audioStereo;
-    }
-}
-
-void Config::SetCurrentAudioBackend(AudioBackend backend) {
-    switch (backend) {
-        case AudioBackend::WASAPI:
-            SetString("Window.AudioBackend", "wasapi");
-            break;
-        case AudioBackend::COREAUDIO:
-            SetString("Window.AudioBackend", "coreaudio");
-            break;
-        case AudioBackend::SDL:
-            SetString("Window.AudioBackend", "sdl");
-            break;
-        case AudioBackend::NUL:
-            SetString("Window.AudioBackend", "null");
-            break;
-        default:
-            SetString("Window.AudioBackend", "");
-    }
-}
-
-WindowBackend Config::GetWindowBackend() {
-    WindowBackend backend;
-    auto backendId = GetInt("Window.Backend.Id", -1);
-    if (Context::GetInstance()->GetWindow()->IsAvailableWindowBackend(backendId)) {
-        return static_cast<WindowBackend>(backendId);
-    }
-
-    SPDLOG_TRACE(
-        "Could not find available WindowBackend matching id from config file ({}). Returning default WindowBackend.",
-        backendId);
-#ifdef ENABLE_DX11
-    return WindowBackend::FAST3D_DXGI_DX11;
-#endif
-#ifdef __APPLE__
-    if (Metal_IsSupported()) {
-        return WindowBackend::FAST3D_SDL_METAL;
-    }
-#endif
-    return WindowBackend::FAST3D_SDL_OPENGL;
-}
-
-void Config::SetWindowBackend(WindowBackend backend) {
-    SetInt("Window.Backend.Id", static_cast<int>(backend));
-
-    switch (backend) {
-        case WindowBackend::FAST3D_DXGI_DX11:
-            SetString("Window.Backend.Name", "DirectX 11");
-            break;
-        case WindowBackend::FAST3D_SDL_OPENGL:
-            SetString("Window.Backend.Name", "OpenGL");
-            break;
-        case WindowBackend::FAST3D_SDL_METAL:
-            SetString("Window.Backend.Name", "Metal");
-            break;
-        default:
-            SetString("Window.Backend.Name", "");
-    }
 }
 
 bool Config::RegisterVersionUpdater(std::shared_ptr<ConfigVersionUpdater> versionUpdater) {

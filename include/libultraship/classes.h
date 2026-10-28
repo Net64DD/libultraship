@@ -18,7 +18,6 @@
 #include "ship/window/gui/GuiMenuBar.h"
 #include "ship/window/gui/GuiElement.h"
 #include "ship/window/gui/GuiWindow.h"
-#include "ship/window/gui/InputEditorWindow.h"
 #include "ship/window/gui/StatsWindow.h"
 #include "ship/controller/controldevice/controller/mapping/keyboard/KeyboardScancodes.h"
 #include "ship/controller/controldevice/controller/Controller.h"
@@ -34,8 +33,5 @@
 #include "ship/audio/SDLAudioPlayer.h"
 #ifdef __APPLE__
 #include "ship/utils/AppleFolderManager.h"
-#endif
-#ifdef __SWITCH__
-#include "ship/port/switch/SwitchImpl.h"
 #endif
 #endif

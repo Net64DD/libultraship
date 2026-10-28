@@ -152,9 +152,11 @@ std::shared_ptr<IResource> ResourceManager::LoadResourceProcess(const ResourceId
         }
     }
 
-    // Get the file from the OTR
+    // Get the file from the OTR. It may be null when the resource exists only as a `.meta`
+    // alias (no real file at this path); fall through so the loader can resolve the alias,
+    // but only when a `.meta` for this path actually exists.
     auto file = LoadFileProcess(identifier.Path);
-    if (file == nullptr) {
+    if (file == nullptr && !mArchiveManager->HasFile(identifier.Path + ".meta")) {
         SPDLOG_TRACE("Failed to load resource file at path {}", identifier.Path);
         mResourceCache[identifier] = ResourceLoadError::NotFound;
         return nullptr;
@@ -230,6 +232,14 @@ ResourceManager::LoadResourceAsync(const std::string& filePath, bool loadExact, 
 
 std::shared_ptr<IResource> ResourceManager::LoadResource(const ResourceIdentifier& identifier, bool loadExact,
                                                          std::shared_ptr<ResourceInitData> initData) {
+#if defined(__SWITCH__)
+    // Horizon's pthread makes the per-call std::promise/std::future in LoadResourceAsync pathologically expensive.
+    // On a cache hit, the value is already resident, so return it synchronously and skip the async machinery entirely.
+    if (const auto cached = GetCachedResource(identifier, loadExact)) {
+        return cached;
+    }
+#endif
+
     auto resource = LoadResourceAsync(identifier, loadExact, BS::pr::highest, initData).get();
     if (resource == nullptr) {
         SPDLOG_TRACE("Failed to load resource file at path {}", identifier.Path);
@@ -394,6 +404,12 @@ void ResourceManager::UnloadResourcesProcess(const ResourceFilter& filter) {
 
     for (const auto& key : *list.get()) {
         UnloadResource({ key, mDefaultCacheOwner, mDefaultCacheArchive });
+
+        // A `.meta` alias resource is cached under its base path, which is not itself a listed
+        // file. Evict it too so it can't survive stale after its target/dependencies are unloaded.
+        if (key.ends_with(".meta")) {
+            UnloadResource({ key.substr(0, key.size() - 5), mDefaultCacheOwner, mDefaultCacheArchive });
+        }
     }
 }
 
@@ -422,6 +438,11 @@ size_t ResourceManager::UnloadResource(const ResourceIdentifier& identifier) {
 
 size_t ResourceManager::UnloadResource(const std::string& filePath) {
     return UnloadResource({ filePath, mDefaultCacheOwner, mDefaultCacheArchive });
+}
+
+void ResourceManager::CacheExternalResource(const std::string& filePath, std::shared_ptr<IResource> resource) {
+    const std::lock_guard<std::mutex> lock(mMutex);
+    mResourceCache[{ filePath, mDefaultCacheOwner, mDefaultCacheArchive }] = resource;
 }
 
 bool ResourceManager::WriteResource(const ResourceIdentifier& identifier, const std::vector<uint8_t>& data,
@@ -458,6 +479,13 @@ bool ResourceManager::IsAltAssetsEnabled() {
 
 void ResourceManager::SetAltAssetsEnabled(bool isEnabled) {
     mAltAssetsEnabled = isEnabled;
+
+#if defined(__SWITCH__)
+    // Resolves CRC entries may not point at the wrong variant (base vs. alt) -- drop them.  They reresolve alt-aware
+    // on next access.  This is what makes caching the texture path safe (reference: the HD-texture issue).
+    std::lock_guard lock(mCrcCacheMutex);
+    mCrcCache.clear();
+#endif
 }
 
 size_t ResourceManager::GetResourceSize(std::shared_ptr<IResource> resource) {
@@ -514,10 +542,37 @@ void* ResourceManager::GetResourceRawPointer(const char* name) {
     return GetResourceRawPointer(resource);
 }
 
+#if defined(__SWITCH__)
+std::shared_ptr<IResource> ResourceManager::GetResourceByCrc(std::uint64_t crc) {
+    {
+        std::lock_guard lock(mCrcCacheMutex);
+
+        if (const auto i = mCrcCache.find(crc); i != mCrcCache.end()) {
+            if (const auto resource = i->second.lock()) {
+                return resource;
+            }
+        }
+    }
+
+    const auto resource = LoadResource(crc);
+    if (resource) {
+        std::lock_guard lock(mCrcCacheMutex);
+        mCrcCache[crc] = resource;
+    }
+
+    return resource;
+}
+#endif
+
 void* ResourceManager::GetResourceRawPointer(uint64_t crc) {
+#if defined(__SWITCH__)
+    const auto resource = GetResourceByCrc(crc);
+    return resource ? resource->GetRawPointer() : nullptr;
+#else
     auto resource = LoadResource(crc);
 
     return GetResourceRawPointer(resource);
+#endif
 }
 
 } // namespace Ship
